@@ -588,14 +588,15 @@
   }
 
   .xp-bar {
-    position: relative;
-    width: 100%;
-    height: 24px;
-    background-color: #333;
-    border-radius: 12px;
-    overflow: hidden;
-    margin-top: 0.5em;
-    border: 2px solid #555;
+      position: relative;
+      width: 100%;
+      min-width: 200px;                    
+      height: 32px;                      
+      background-color: #333;
+      border-radius: 16px;
+      overflow: hidden;
+      margin-top: 0.5em;
+      border: 2px solid #555;
   }
 
   .xp-progress {
@@ -605,15 +606,16 @@
   }
 
   .xp-text {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 0.85em;
-    font-weight: bold;
-    color: white;
-    text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-    pointer-events: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 0.95em;                   
+      font-weight: bold;
+      color: white;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+      pointer-events: none;
+      white-space: nowrap;                 
   }
 
   .leave-btn {
