@@ -1,6 +1,6 @@
-# 🏰 Dungeon Crawler - Quick Reference
+# 🏰 Dungeon Crawler 
 
-## 🚀 Quick Start (3 Commands)
+## 🚀 Quick Start 
 
 ```bash
 # 1. Setup database (one time only)
