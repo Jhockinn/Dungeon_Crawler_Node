@@ -1,0 +1,24 @@
+{
+  "name": "dungeon-crawler-server",
+  "version": "1.0.0",
+  "description": "Dungeon Crawler Game - Backend Server",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon app.js",
+    "start": "node app.js",
+    "db:setup": "psql -U postgres -d dungeon_crawler -f db/schema.sql",
+    "db:seed": "psql -U postgres -d dungeon_crawler -f db/seed.sql"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "socket.io": "^4.6.1",
+    "pg": "^8.11.3",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

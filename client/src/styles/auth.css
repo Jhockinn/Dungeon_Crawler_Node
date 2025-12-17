@@ -1,0 +1,62 @@
+/* Authentication pages - Login and Register */
+.auth-container {
+  max-width: 500px;
+  margin: 0 auto;
+  padding: 2em;
+  text-align: center;
+  padding-top: 5em;
+}
+
+.auth-container h1 {
+  font-size: 3em;
+  margin-bottom: 1.5em;
+  color: #ffd700;
+}
+
+.login-container,
+.register-container {
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 2em;
+  background-color: #1a1a1a;
+  border-radius: 8px;
+}
+
+.form-group {
+  margin-bottom: 1em;
+  text-align: left;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5em;
+}
+
+.form-group input {
+  width: 100%;
+}
+
+.error {
+  color: #ff4444;
+  margin: 1em 0;
+  text-align: center;
+}
+
+.switch-view {
+  margin-top: 1.5em;
+  text-align: center;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #646cff;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+}
+
+.link-btn:hover {
+  color: #8080ff;
+}
