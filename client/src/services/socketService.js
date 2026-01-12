@@ -9,15 +9,7 @@ export function connectSocket() {
     socket = io(SOCKET_URL, {
         withCredentials: true
     });
-    
-    socket.on('connect', () => {
-    // console.log('Connected to game server:', socket.id);
-    });
-    
-    socket.on('disconnect', () => {
-    // console.log('Disconnected from game server');
-    });
-    
+
     socket.on('error', (error) => {
         console.error('Socket error:', error);
     });
@@ -36,7 +28,6 @@ export function getSocket() {
     return socket;
 }
 
-// Game events
 export function startDungeon(characterId, difficulty) {
     if (!socket) throw new Error('Socket not connected');
     socket.emit('startDungeon', { characterId, difficulty });
@@ -57,7 +48,6 @@ export function leaveDungeon(sessionId, characterId) {
     socket.emit('leaveDungeon', { sessionId, characterId });
 }
 
-// Socket listeners
 export function onDungeonReady(callback) {
     if (!socket) return;
     socket.on('dungeonReady', callback);

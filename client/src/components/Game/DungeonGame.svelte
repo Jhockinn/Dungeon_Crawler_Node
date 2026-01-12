@@ -38,7 +38,6 @@
 
   onMount(() => {
     onDungeonReady((data) => {
-    // console.log('Dungeon ready:', data);
       gameStore.startDungeon(data.sessionId, data.maze, data.enemies, data.character);
       exitPoint = data.exitPoint;
       addLog('Entered the dungeon!');
@@ -46,42 +45,28 @@
     });
 
     onPlayerMoved((data) => {
-      // console.log('📍 CLIENT received playerMoved:', data);
       if (data.characterId === character.id) {
-        // console.log('✅ Updating position to:', data.position);
         playerPos = { x: data.position.x, y: data.position.y };
         gridKey++;
       }
     });
 
     onCombatUpdate((data) => {
-      // console.log('💥 Combat update received:', data);
-      // console.log('📍 Current playerPos:', playerPos);
-      // console.log('👤 Current selectedEnemy:', selectedEnemy);
-      
       const enemyList = [...enemies];
       const enemy = enemyList.find(e => e.id === data.enemyId);
-      
-      // console.log('🔍 Found enemy in list:', enemy);
-      
+
       if (enemy) {
         enemy.health = data.health;
         gameStore.updateEnemies(enemyList);
         addLog(`Hit ${enemy.name} for ${data.damage} damage!`);
         enemies = enemyList;
-        
-      // console.log('✅ After update - enemy:', enemy);
-      // console.log('✅ After update - playerPos:', playerPos);
-      // console.log('✅ After update - selectedEnemy:', selectedEnemy);
-        
+
         if (selectedEnemy && selectedEnemy.id === data.enemyId) {
-          selectedEnemy.health = data.health; 
+          selectedEnemy.health = data.health;
           selectedEnemy = selectedEnemy;
         }
-        
+
         gridKey++;
-        
-        // console.log('🎬 After gridKey++ - playerPos:', playerPos);
       }
     });
 
@@ -91,12 +76,11 @@
       if (enemy) {
         enemy.isAlive = false;
         gameStore.updateEnemies(enemyList);
-        
-        // Update character XP and level
+
         character.experience = data.currentXP;
         character.level = data.level;
         character.requiredXP = data.requiredXP;
-        
+
         addLog(`💀 Defeated ${enemy.name}! +${data.xpGained} XP (${data.currentXP}/${data.requiredXP})`);
         toast.success(`💀 Defeated ${enemy.name}! +${data.xpGained} XP`);
         
@@ -109,7 +93,6 @@
     });
 
     onEnemyEncounter((data) => {
-      // console.log('⚔️ Enemy encounter!', data.enemy);
       selectedEnemy = data.enemy;
       addLog(`⚔️ Encountered ${data.enemy.sprite} ${data.enemy.name}! Press SPACE or click Attack!`);
       toast(`⚔️ Encountered ${data.enemy.name}!`, {
@@ -290,9 +273,7 @@
   }
 
   function handleCellClick(x, y, cell) {
-    // console.log('Cell clicked:', x, y, cell.type);
     if (cell.type === 'enemy' && cell.enemy) {
-      // console.log('Enemy selected:', cell.enemy);
       selectedEnemy = cell.enemy;
     }
   }
@@ -309,13 +290,6 @@
     const dx = Math.abs(enemy.position.x - playerPos.x);
     const dy = Math.abs(enemy.position.y - playerPos.y);
     const inRange = (dx === 0 && dy === 0) || (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
-    // console.log(`🎯 isEnemyInRange check:`, {
-      // enemyPos: enemy.position,
-      // playerPos: playerPos,
-      // dx, dy,
-      // inRange,
-      // enemyAlive: enemy.isAlive
-    // });
     return inRange;
   }
 

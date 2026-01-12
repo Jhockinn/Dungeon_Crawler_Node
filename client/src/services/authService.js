@@ -1,3 +1,4 @@
+import { fetchAPI } from './api';
 
 
 export async function verifyEmail(token) {

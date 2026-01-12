@@ -2,27 +2,21 @@
   import { onMount } from 'svelte';
   import { authStore } from './stores/authStore';
   import { getCurrentUser } from './services/api';
-  import Login from './components/Auth/Login.svelte';
-  import Register from './components/Auth/Register.svelte';
-  import ForgotPassword from './components/Auth/ForgotPassword.svelte';
-  import VerifyEmail from './components/Auth/VerifyEmail.svelte';
-  import ResetPassword from './components/Auth/ResetPassword.svelte';
-  import Game from './components/Game/Game.svelte';
+  import { getCurrentRoute, navigateTo, ROUTES } from './utils/router';
+  import LoginPage from './pages/LoginPage.svelte';
+  import RegisterPage from './pages/RegisterPage.svelte';
+  import ForgotPasswordPage from './pages/ForgotPasswordPage.svelte';
+  import VerifyEmailPage from './pages/VerifyEmailPage.svelte';
+  import ResetPasswordPage from './pages/ResetPasswordPage.svelte';
+  import GamePage from './pages/GamePage.svelte';
 
-  let currentView = 'login'; // 'login', 'register', 'game', 'forgotPassword', 'verifyEmail', 'resetPassword'
+  let currentRoute = ROUTES.LOGIN;
 
-  // Check if user is already logged in (session exists)
   onMount(async () => {
-    // Check for special routes in URL
-    const params = new URLSearchParams(window.location.search);
-    
-    if (window.location.pathname.includes('/verify-email') || params.has('token')) {
-      currentView = 'verifyEmail';
-      return;
-    }
-    
-    if (window.location.pathname.includes('/reset-password')) {
-      currentView = 'resetPassword';
+    currentRoute = getCurrentRoute();
+
+    if ([ROUTES.VERIFY_EMAIL, ROUTES.RESET_PASSWORD].includes(currentRoute)) {
+      authStore.setLoading(false);
       return;
     }
 
@@ -30,30 +24,40 @@
       authStore.setLoading(true);
       const response = await getCurrentUser();
       authStore.setUser(response.user);
-      currentView = 'game';
+
+      if (![ROUTES.GAME].includes(currentRoute)) {
+        currentRoute = ROUTES.GAME;
+        navigateTo(ROUTES.GAME);
+      }
     } catch (error) {
-      // Not logged in, stay on login page
       authStore.setUser(null);
+      if (currentRoute === ROUTES.GAME) {
+        currentRoute = ROUTES.LOGIN;
+        navigateTo(ROUTES.LOGIN);
+      }
     } finally {
       authStore.setLoading(false);
     }
   });
 
-  function showLogin() {
-    currentView = 'login';
-    window.history.pushState({}, '', '/');
+  function handleLoginSuccess() {
+    currentRoute = ROUTES.GAME;
+    navigateTo(ROUTES.GAME);
   }
 
-  function showRegister() {
-    currentView = 'register';
+  function handleShowRegister() {
+    currentRoute = ROUTES.REGISTER;
+    navigateTo(ROUTES.REGISTER);
   }
 
-  function showGame() {
-    currentView = 'game';
+  function handleShowForgotPassword() {
+    currentRoute = ROUTES.FORGOT_PASSWORD;
+    navigateTo(ROUTES.FORGOT_PASSWORD);
   }
 
-  function showForgotPassword() {
-    currentView = 'forgotPassword';
+  function handleBackToLogin() {
+    currentRoute = ROUTES.LOGIN;
+    navigateTo(ROUTES.LOGIN);
   }
 
   async function handleLogout() {
@@ -62,7 +66,8 @@
         const { logout } = await import('./services/api');
         await logout();
         authStore.logout();
-        currentView = 'login';
+        currentRoute = ROUTES.LOGIN;
+        navigateTo(ROUTES.LOGIN);
       } catch (error) {
         console.error('Logout error:', error);
       }
@@ -76,7 +81,7 @@
       <div class="spinner"></div>
       <p>Loading...</p>
     </div>
-  {:else if $authStore.isAuthenticated && currentView === 'game'}
+  {:else if $authStore.isAuthenticated && currentRoute === ROUTES.GAME}
     <div class="app-header">
       <h1>🏰 Dungeon Crawler</h1>
       <div class="user-info">
@@ -84,33 +89,29 @@
         <button class="logout-btn" on:click={handleLogout}>Logout</button>
       </div>
     </div>
-    
-    <Game />
+
+    <GamePage />
   {:else}
     <div class="auth-container">
       <h1>🏰 Dungeon Crawler</h1>
-      
-      {#if currentView === 'login'}
-        <Login 
-          on:success={showGame}
-          on:forgotPassword={showForgotPassword}
+
+      {#if currentRoute === ROUTES.LOGIN}
+        <LoginPage
+          on:success={handleLoginSuccess}
+          on:forgotPassword={handleShowForgotPassword}
+          on:register={handleShowRegister}
         />
-        <p class="switch-view">
-          Don't have an account? 
-          <button class="link-btn" on:click={showRegister}>Register here</button>
-        </p>
-      {:else if currentView === 'register'}
-        <Register on:success={showLogin} />
-        <p class="switch-view">
-          Already have an account? 
-          <button class="link-btn" on:click={showLogin}>Login here</button>
-        </p>
-      {:else if currentView === 'forgotPassword'}
-        <ForgotPassword on:cancel={showLogin} />
-      {:else if currentView === 'verifyEmail'}
-        <VerifyEmail />
-      {:else if currentView === 'resetPassword'}
-        <ResetPassword />
+      {:else if currentRoute === ROUTES.REGISTER}
+        <RegisterPage
+          on:success={handleBackToLogin}
+          on:login={handleBackToLogin}
+        />
+      {:else if currentRoute === ROUTES.FORGOT_PASSWORD}
+        <ForgotPasswordPage on:cancel={handleBackToLogin} />
+      {:else if currentRoute === ROUTES.VERIFY_EMAIL}
+        <VerifyEmailPage />
+      {:else if currentRoute === ROUTES.RESET_PASSWORD}
+        <ResetPasswordPage />
       {/if}
     </div>
   {/if}
@@ -190,24 +191,5 @@
     font-size: 3em;
     margin-bottom: 1.5em;
     color: #ffd700;
-  }
-
-  .switch-view {
-    margin-top: 1.5em;
-    text-align: center;
-  }
-
-  .link-btn {
-    background: none;
-    border: none;
-    color: #646cff;
-    text-decoration: underline;
-    cursor: pointer;
-    padding: 0;
-    font-size: inherit;
-  }
-
-  .link-btn:hover {
-    color: #8080ff;
   }
 </style>

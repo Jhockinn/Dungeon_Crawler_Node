@@ -1,207 +1,203 @@
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const pool = require('../config/database');
+const { buildClientUrl } = require('./urlHelper');
 
-// Create email transporter
-const createTransporter = () => {
-    // For development, use Ethereal (fake email service)
-    // For production, use real email service (Gmail, SendGrid, etc.)
-    
-    if (process.env.NODE_ENV === 'production') {
-        // Real email service
-        return nodemailer.createTransport({
-            host: process.env.EMAIL_HOST,
-            port: process.env.EMAIL_PORT,
-            secure: true,
+let transporter = null;
+
+// Creates email transporter (Gmail if configured, else Ethereal test account)
+const createTransporter = async () => {
+    if (transporter) return transporter;
+
+    const hasGmailConfig = process.env.EMAIL_USER && process.env.EMAIL_PASS;
+
+    if (hasGmailConfig) {
+        console.log('📧 Using Gmail SMTP with:', process.env.EMAIL_USER);
+        transporter = nodemailer.createTransport({
+            service: 'gmail',
             auth: {
                 user: process.env.EMAIL_USER,
-                pass: process.env.EMAIL_PASSWORD
+                pass: process.env.EMAIL_PASS
             }
         });
+        console.log('✅ Gmail transporter created');
     } else {
-        // For development/testing - logs to console
-        return nodemailer.createTransport({
+        console.log('📧 Creating Ethereal test email account...');
+        const testAccount = await nodemailer.createTestAccount();
+
+        transporter = nodemailer.createTransport({
             host: 'smtp.ethereal.email',
             port: 587,
+            secure: false,
             auth: {
-                user: process.env.EMAIL_USER || 'test@ethereal.email',
-                pass: process.env.EMAIL_PASSWORD || 'test'
+                user: testAccount.user,
+                pass: testAccount.pass
             }
         });
+
+        console.log('✅ Ethereal account created:', testAccount.user);
+        console.log('⚠️  To use Gmail instead, set EMAIL_USER and EMAIL_PASS in .env');
     }
+
+    return transporter;
 };
 
-// Generate random token
+// Generates random token for email verification or password reset
 const generateToken = () => {
     return crypto.randomBytes(32).toString('hex');
 };
 
-// Send verification email
-exports.sendVerificationEmail = async (user) => {
+// Sends verification email with token link (expires in 24 hours)
+const sendVerificationEmail = async (user) => {
     try {
+        const transporter = await createTransporter();
         const token = generateToken();
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-        
-        // Store token in database
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
         await pool.query(
-            'INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+            `INSERT INTO email_verification_tokens (user_id, token, expires_at)
+             VALUES ($1, $2, $3)`,
             [user.id, token, expiresAt]
         );
-        
-        const verificationUrl = `${process.env.CLIENT_URL}/verify-email?token=${token}`;
-        
-        const transporter = createTransporter();
-        
-        const mailOptions = {
-            from: process.env.EMAIL_FROM || '"Dungeon Crawler" <noreply@dungeoncrawler.com>',
+
+        const verificationUrl = buildClientUrl(`/verify-email?token=${token}`);
+
+        const info = await transporter.sendMail({
+            from: '"Dungeon Crawler" <noreply@dungeoncrawler.com>',
             to: user.email,
             subject: 'Verify Your Email - Dungeon Crawler',
             html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h1 style="color: #ffd700;">🏰 Welcome to Dungeon Crawler!</h1>
-                    <p>Hi ${user.username},</p>
-                    <p>Thank you for registering! Please verify your email address to activate your account.</p>
-                    <p style="margin: 30px 0;">
-                        <a href="${verificationUrl}" 
-                           style="background-color: #4CAF50; color: white; padding: 12px 24px; 
-                                  text-decoration: none; border-radius: 4px; display: inline-block;">
-                            Verify Email
-                        </a>
-                    </p>
-                    <p>Or copy and paste this link into your browser:</p>
-                    <p style="color: #666; word-break: break-all;">${verificationUrl}</p>
-                    <p style="color: #999; font-size: 12px; margin-top: 30px;">
-                        This link will expire in 24 hours. If you didn't create an account, please ignore this email.
-                    </p>
-                </div>
+                <h1>Welcome to Dungeon Crawler, ${user.username}!</h1>
+                <p>Please verify your email address by clicking the link below:</p>
+                <a href="${verificationUrl}" style="
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 14px 20px;
+                    text-decoration: none;
+                    display: inline-block;
+                    border-radius: 4px;
+                ">Verify Email</a>
+                <p>Or copy this link: ${verificationUrl}</p>
+                <p>This link will expire in 24 hours.</p>
+                <p>If you didn't create this account, please ignore this email.</p>
             `
-        };
-        
-        const info = await transporter.sendMail(mailOptions);
-        
-        
-        // For development, log the preview URL
+        });
+
         if (process.env.NODE_ENV !== 'production') {
-            console.log('Preview URL:', nodemailer.getTestMessageUrl(info));
-            console.log('Verification link:', verificationUrl);
+            const previewUrl = nodemailer.getTestMessageUrl(info);
+            console.log('📬 Email sent!');
+            console.log('🔗 Preview URL:', previewUrl);
+            console.log('   (Open this in your browser to see the email)');
         }
-        
-        return true;
+
+        return { success: true, messageId: info.messageId };
     } catch (error) {
         console.error('Send verification email error:', error);
         throw error;
     }
 };
 
-// Send password reset email
-exports.sendPasswordResetEmail = async (user) => {
+// Sends password reset email with token link (expires in 1 hour)
+const sendPasswordResetEmail = async (user) => {
     try {
+        const transporter = await createTransporter();
         const token = generateToken();
-        const expiresAt = new Date(Date.now() + 1 * 60 * 60 * 1000); // 1 hour
-        
-        // Store token in database
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
         await pool.query(
-            'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+            `INSERT INTO password_reset_tokens (user_id, token, expires_at, used)
+             VALUES ($1, $2, $3, false)`,
             [user.id, token, expiresAt]
         );
-        
-        const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${token}`;
-        
-        const transporter = createTransporter();
-        
-        const mailOptions = {
-            from: process.env.EMAIL_FROM || '"Dungeon Crawler" <noreply@dungeoncrawler.com>',
+
+        const resetUrl = buildClientUrl(`/reset-password?token=${token}`);
+
+        const info = await transporter.sendMail({
+            from: '"Dungeon Crawler" <noreply@dungeoncrawler.com>',
             to: user.email,
             subject: 'Reset Your Password - Dungeon Crawler',
             html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h1 style="color: #ffd700;">🏰 Password Reset Request</h1>
-                    <p>Hi ${user.username},</p>
-                    <p>We received a request to reset your password. Click the button below to create a new password:</p>
-                    <p style="margin: 30px 0;">
-                        <a href="${resetUrl}" 
-                           style="background-color: #f44336; color: white; padding: 12px 24px; 
-                                  text-decoration: none; border-radius: 4px; display: inline-block;">
-                            Reset Password
-                        </a>
-                    </p>
-                    <p>Or copy and paste this link into your browser:</p>
-                    <p style="color: #666; word-break: break-all;">${resetUrl}</p>
-                    <p style="color: #999; font-size: 12px; margin-top: 30px;">
-                        This link will expire in 1 hour. If you didn't request a password reset, please ignore this email and your password will remain unchanged.
-                    </p>
-                </div>
+                <h1>Password Reset Request</h1>
+                <p>Hi ${user.username},</p>
+                <p>You requested to reset your password. Click the link below:</p>
+                <a href="${resetUrl}" style="
+                    background-color: #2196F3;
+                    color: white;
+                    padding: 14px 20px;
+                    text-decoration: none;
+                    display: inline-block;
+                    border-radius: 4px;
+                ">Reset Password</a>
+                <p>Or copy this link: ${resetUrl}</p>
+                <p>This link will expire in 1 hour.</p>
+                <p>If you didn't request this, please ignore this email.</p>
             `
-        };
-        
-        const info = await transporter.sendMail(mailOptions);
-        
-        console.log('Password reset email sent:', info.messageId);
-        
-        // For development, log the preview URL
+        });
+
         if (process.env.NODE_ENV !== 'production') {
-            console.log('Preview URL:', nodemailer.getTestMessageUrl(info));
-            console.log('Reset link:', resetUrl);
+            const previewUrl = nodemailer.getTestMessageUrl(info);
+            console.log('📬 Password reset email sent!');
+            console.log('🔗 Preview URL:', previewUrl);
         }
-        
-        return true;
+
+        return { success: true, messageId: info.messageId };
     } catch (error) {
         console.error('Send password reset email error:', error);
         throw error;
     }
 };
 
-// Verify email token
-exports.verifyEmailToken = async (token) => {
+// Verifies email token and marks user as verified
+const verifyEmailToken = async (token) => {
     try {
         const result = await pool.query(
-            `SELECT vt.*, u.id as user_id, u.email 
-             FROM email_verification_tokens vt
-             JOIN users u ON vt.user_id = u.id
-             WHERE vt.token = $1 AND vt.expires_at > NOW()`,
+            `SELECT evt.*, u.id as user_id, u.username, u.email
+             FROM email_verification_tokens evt
+             JOIN users u ON evt.user_id = u.id
+             WHERE evt.token = $1 AND evt.expires_at > NOW()`,
             [token]
         );
-        
+
         if (result.rows.length === 0) {
             return { valid: false, message: 'Invalid or expired token' };
         }
-        
-        const tokenData = result.rows[0];
-        
-        // Update user as verified
+
+        const user = result.rows[0];
+
         await pool.query(
-            'UPDATE users SET email_verified = TRUE WHERE id = $1',
-            [tokenData.user_id]
+            'UPDATE users SET email_verified = true WHERE id = $1',
+            [user.user_id]
         );
-        
-        // Delete used token
+
         await pool.query(
             'DELETE FROM email_verification_tokens WHERE token = $1',
             [token]
         );
-        
-        return { valid: true, userId: tokenData.user_id };
+
+        return { valid: true, userId: user.user_id };
     } catch (error) {
         console.error('Verify email token error:', error);
         throw error;
     }
 };
 
-// Verify password reset token
-exports.verifyPasswordResetToken = async (token) => {
+// Verifies password reset token is valid and not expired
+const verifyPasswordResetToken = async (token) => {
     try {
         const result = await pool.query(
-            `SELECT rt.*, u.id as user_id, u.email, u.username
-             FROM password_reset_tokens rt
-             JOIN users u ON rt.user_id = u.id
-             WHERE rt.token = $1 AND rt.expires_at > NOW() AND rt.used = FALSE`,
+            `SELECT prt.*, u.id as user_id, u.username, u.email
+             FROM password_reset_tokens prt
+             JOIN users u ON prt.user_id = u.id
+             WHERE prt.token = $1
+             AND prt.expires_at > NOW()
+             AND prt.used = false`,
             [token]
         );
-        
+
         if (result.rows.length === 0) {
             return { valid: false, message: 'Invalid or expired token' };
         }
-        
+
         return { valid: true, user: result.rows[0] };
     } catch (error) {
         console.error('Verify password reset token error:', error);
@@ -209,10 +205,23 @@ exports.verifyPasswordResetToken = async (token) => {
     }
 };
 
-// Mark password reset token as used
-exports.markTokenAsUsed = async (token) => {
-    await pool.query(
-        'UPDATE password_reset_tokens SET used = TRUE WHERE token = $1',
-        [token]
-    );
+// Marks password reset token as used to prevent reuse
+const markTokenAsUsed = async (token) => {
+    try {
+        await pool.query(
+            'UPDATE password_reset_tokens SET used = true WHERE token = $1',
+            [token]
+        );
+    } catch (error) {
+        console.error('Mark token as used error:', error);
+        throw error;
+    }
+};
+
+module.exports = {
+    sendVerificationEmail,
+    sendPasswordResetEmail,
+    verifyEmailToken,
+    verifyPasswordResetToken,
+    markTokenAsUsed
 };

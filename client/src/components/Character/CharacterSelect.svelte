@@ -96,10 +96,6 @@
               <span class="label">🛡️ DEF:</span>
               <span class="value">{character.base_defense}</span>
             </div>
-            <div class="stat">
-              <span class="label">💰 Gold:</span>
-              <span class="value">{character.gold}</span>
-            </div>
           </div>
           
           <div class="character-actions">

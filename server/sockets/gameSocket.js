@@ -3,11 +3,7 @@ const pool = require('../config/database');
 
 const activeDungeons = new Map();
 
-// ===============================
-// XP SYSTEM - Progressive Leveling  
-// ===============================
 function calculateXPForLevel(level) {
-    // XP required = 100 * (level^1.5)
     return Math.floor(100 * Math.pow(level, 1.5));
 }
 
@@ -28,16 +24,15 @@ async function checkLevelUp(characterId) {
     
     const { level, experience } = result.rows[0];
     const requiredXP = calculateXPForLevel(level);
-    
+
     if (experience >= requiredXP) {
         const newLevel = level + 1;
         const remainingXP = experience - requiredXP;
-        
-        // Stats increase per level
+
         const healthIncrease = 10;
         const attackIncrease = 2;
         const defenseIncrease = 1;
-        
+
         await pool.query(`
             UPDATE characters 
             SET 
@@ -61,14 +56,14 @@ async function checkLevelUp(characterId) {
             }
         };
     }
-    
+
     return { leveledUp: false };
 }
 
 function spawnEnemies(maze, difficulty) {
     const enemies = [];
     const enemyCount = 3 + (difficulty * 2);
-    
+
     const walkablePositions = [];
     for (let y = 0; y < maze.length; y++) {
         for (let x = 0; x < maze[y].length; x++) {
@@ -77,19 +72,19 @@ function spawnEnemies(maze, difficulty) {
             }
         }
     }
-    
+
     const enemyTypes = [
         { name: 'Goblin', health: 30, attack: 5, sprite: '👹' },
         { name: 'Skeleton', health: 40, attack: 8, sprite: '💀' },
         { name: 'Orc', health: 60, attack: 12, sprite: '🧟' }
     ];
-    
+
     for (let i = 0; i < Math.min(enemyCount, walkablePositions.length); i++) {
         const randomIndex = Math.floor(Math.random() * walkablePositions.length);
         const pos = walkablePositions.splice(randomIndex, 1)[0];
         const typeIndex = Math.min(Math.floor(difficulty / 2), enemyTypes.length - 1);
         const enemyType = enemyTypes[typeIndex];
-        
+
         enemies.push({
             id: `enemy_${i}`,
             ...enemyType,
@@ -98,57 +93,81 @@ function spawnEnemies(maze, difficulty) {
             isAlive: true
         });
     }
-    
+
     return enemies;
 }
 
 module.exports = (io, socket) => {
-    
+
+    async function verifyCharacterOwnership(characterId, userId) {
+        const result = await pool.query(
+            'SELECT user_id FROM characters WHERE id = $1',
+            [characterId]
+        );
+
+        if (result.rows.length === 0) {
+            return { valid: false, error: 'Character not found' };
+        }
+
+        if (result.rows[0].user_id !== userId) {
+            return { valid: false, error: 'Unauthorized: This character does not belong to you' };
+        }
+
+        return { valid: true };
+    }
+
     socket.on('startDungeon', async ({ characterId, difficulty }) => {
         try {
-            // console.log(`Character ${characterId} starting dungeon (difficulty ${difficulty})`);
-            
+            const userId = socket.request.session?.userId;
+            if (!userId) {
+                return socket.emit('error', { message: 'Not authenticated. Please login.' });
+            }
+
             const charResult = await pool.query(
                 'SELECT * FROM characters WHERE id = $1',
                 [characterId]
             );
-            
+
             if (charResult.rows.length === 0) {
                 return socket.emit('error', { message: 'Character not found' });
             }
-            
+
             const character = charResult.rows[0];
+
+            if (character.user_id !== userId) {
+                return socket.emit('error', { message: 'Unauthorized: This character does not belong to you' });
+            }
             const mazeSize = 15 + (difficulty * 2);
             const maze = generateMaze(mazeSize, mazeSize);
-            
+
             const sessionResult = await pool.query(`
                 INSERT INTO dungeon_sessions 
                 (character_id, difficulty, seed, width, height)
                 VALUES ($1, $2, $3, $4, $5)
                 RETURNING id
             `, [characterId, difficulty, maze.seed, mazeSize, mazeSize]);
-            
+
             const sessionId = sessionResult.rows[0].id;
             const enemies = spawnEnemies(maze.layout, difficulty);
             const exitX = mazeSize - 2;
             const exitY = mazeSize - 2;
             const exitPoint = { x: exitX, y: exitY };
-            
+
             activeDungeons.set(sessionId, {
                 maze: maze.layout,
                 enemies: enemies,
                 players: new Map(),
                 difficulty: difficulty
             });
-            
+
             activeDungeons.get(sessionId).players.set(characterId, {
                 position: { x: 1, y: 1 },
                 health: character.health,
                 socketId: socket.id
             });
-            
+
             socket.join(`dungeon_${sessionId}`);
-            
+
             socket.emit('dungeonReady', {
                 sessionId,
                 maze: maze.layout,
@@ -168,38 +187,39 @@ module.exports = (io, socket) => {
                     defense: character.base_defense
                 }
             });
-            
-            // console.log(`Dungeon ${sessionId} created for character ${characterId}`);
         } catch (error) {
             console.error('Start dungeon error:', error);
             socket.emit('error', { message: 'Failed to start dungeon' });
         }
     });
-    
+
     socket.on('move', async ({ sessionId, characterId, direction }) => {
-        // console.log(`🎮 MOVE EVENT RECEIVED: session=${sessionId}, char=${characterId}, dir=${direction}`);
         try {
+            const userId = socket.request.session?.userId;
+            if (!userId) {
+                return socket.emit('error', { message: 'Not authenticated' });
+            }
+
+            const verification = await verifyCharacterOwnership(characterId, userId);
+            if (!verification.valid) {
+                return socket.emit('error', { message: verification.error });
+            }
+
             const dungeon = activeDungeons.get(sessionId);
-            // console.log('🏰 Dungeon found:', !!dungeon);
-            
+
             if (!dungeon) {
-            // console.log('❌ Dungeon not found in memory!');
                 return;
             }
-            
+
             const player = dungeon.players.get(characterId);
-            // console.log('👤 Player found:', !!player);
-            
+
             if (!player) {
-                // console.log('❌ Player not found in dungeon!');
                 return;
             }
-            
+
             const { x, y } = player.position;
             let newX = x;
             let newY = y;
-            
-            // console.log(`Current position: (${x}, ${y})`);
 
             switch (direction) {
                 case 'up':    newY = y - 1; break;
@@ -207,63 +227,45 @@ module.exports = (io, socket) => {
                 case 'left':  newX = x - 1; break;
                 case 'right': newX = x + 1; break;
             }
-            
-            // console.log(`Attempting move to: (${newX}, ${newY})`);
-            
+
             if (dungeon.maze[newY] && dungeon.maze[newY][newX] === 0) {
-                // console.log('✅ Move valid! Updating position.');
                 player.position = { x: newX, y: newY };
-                
+
                 io.to(`dungeon_${sessionId}`).emit('playerMoved', {
                     characterId,
                     position: { x: newX, y: newY }
                 });
 
-                // console.log(`🔍 Checking for enemies at (${newX}, ${newY})`);
-                // console.log(`📋 Active enemies:`, dungeon.enemies.map(e => ({
-                // id: e.id, 
-                // name: e.name, 
-                // pos: e.position, 
-                // alive: e.isAlive
-                // })));
-
-                const enemy = dungeon.enemies.find(e => 
+                const enemy = dungeon.enemies.find(e =>
                     e.isAlive && e.position.x === newX && e.position.y === newY
                 );
 
-                // console.log(`👹 Enemy found:`, !!enemy);
-
                 if (enemy) {
-                    // console.log(`⚔️ SENDING enemyEncounter event for ${enemy.name}`);
                     socket.emit('enemyEncounter', { enemy });
                 }
-                
+
                 const exitX = dungeon.maze.length - 2;
                 const exitY = dungeon.maze[0].length - 2;
 
                 if (newX === exitX && newY === exitY) {
-                    // console.log(`🚪 Player reached exit!`);
-                    
-                    // Heal player to full HP
+
                     await pool.query(`
                         UPDATE characters 
                         SET health = max_health
                         WHERE id = $1
                     `, [characterId]);
-                    
-                    // Get updated character
+
                     const charResult = await pool.query(
                         'SELECT health, max_health FROM characters WHERE id = $1',
                         [characterId]
                     );
-                    
-                    // Mark session as completed
+
                     await pool.query(`
                         UPDATE dungeon_sessions 
                         SET ended_at = NOW(), is_active = FALSE
                         WHERE id = $1
                     `, [sessionId]);
-                    
+
                     socket.emit('dungeonCompleted', {
                         sessionId,
                         message: 'Victory! You escaped the dungeon!',
@@ -272,16 +274,24 @@ module.exports = (io, socket) => {
                         maxHealth: charResult.rows[0].max_health
                     });
                 }
-            } else {
-                // console.log('❌ Move blocked! Hit a wall.');
             }
         } catch (error) {
             console.error('Move error:', error);
         }
     });
-    
+
     socket.on('attack', async ({ sessionId, characterId, enemyId }) => {
         try {
+            const userId = socket.request.session?.userId;
+            if (!userId) {
+                return socket.emit('error', { message: 'Not authenticated' });
+            }
+
+            const verification = await verifyCharacterOwnership(characterId, userId);
+            if (!verification.valid) {
+                return socket.emit('error', { message: verification.error });
+            }
+
             const dungeon = activeDungeons.get(sessionId);
             if (!dungeon) return;
 
@@ -292,9 +302,9 @@ module.exports = (io, socket) => {
                 'SELECT base_attack FROM characters WHERE id = $1',
                 [characterId]
             );
-            
+
             if (charResult.rows.length === 0) return;
-            
+
             const character = charResult.rows[0];
             const damage = Math.floor(character.base_attack * (0.8 + Math.random() * 0.4));
             enemy.health -= damage;
@@ -303,16 +313,14 @@ module.exports = (io, socket) => {
                 enemy.health = 0;
                 enemy.isAlive = false;
 
-                // Award XP
                 const xpGained = calculateEnemyXP(enemy.name, dungeon.difficulty);
-                
+
                 await pool.query(`
                     UPDATE characters 
                     SET experience = experience + $1
                     WHERE id = $2
                 `, [xpGained, characterId]);
 
-                // Check for level up
                 const levelUpResult = await checkLevelUp(characterId);
 
                 await pool.query(`
@@ -321,12 +329,11 @@ module.exports = (io, socket) => {
                     WHERE id = $1
                 `, [sessionId]);
 
-                // Get updated character stats
                 const charStats = await pool.query(`
                     SELECT level, experience, max_health, base_attack, base_defense 
                     FROM characters WHERE id = $1
                 `, [characterId]);
-                
+
                 const char = charStats.rows[0];
                 const requiredXP = calculateXPForLevel(char.level);
 
@@ -356,24 +363,24 @@ module.exports = (io, socket) => {
                     damage,
                     health: enemy.health
                 });
-                
+
                 const player = dungeon.players.get(characterId);
                 if (player) {
                     const enemyDamage = Math.floor(enemy.attack * (0.8 + Math.random() * 0.4));
                     player.health -= enemyDamage;
-                        
+
                     await pool.query(
                         'UPDATE characters SET health = GREATEST(health - $1, 0) WHERE id = $2',
                         [enemyDamage, characterId]
                     );
-                        
+
                     const charResult = await pool.query(
                         'SELECT health, max_health FROM characters WHERE id = $1',
                         [characterId]
                     );
-                        
+
                     const updatedHealth = charResult.rows[0].health;
-                        
+
                     io.to(`dungeon_${sessionId}`).emit('playerDamaged', {
                         characterId,
                         damage: enemyDamage,
@@ -381,36 +388,30 @@ module.exports = (io, socket) => {
                         maxHealth: charResult.rows[0].max_health,
                         enemyName: enemy.name
                     });
-                        
+
                     if (updatedHealth <= 0) {
-                        // console.log(`💀 Player ${characterId} died!`);
-                        
-                        // Heal player to full HP
                         await pool.query(`
                             UPDATE characters 
                             SET health = max_health
                             WHERE id = $1
                         `, [characterId]);
-                        
-                        // Get updated character
+
                         const healedChar = await pool.query(
                             'SELECT health, max_health FROM characters WHERE id = $1',
                             [characterId]
                         );
-                        
-                        // Mark session as ended (failed)
+
                         await pool.query(`
                             UPDATE dungeon_sessions 
                             SET ended_at = NOW(), is_active = FALSE
                             WHERE id = $1
                         `, [sessionId]);
-                        
-                        // Clean up dungeon
+
                         dungeon.players.delete(characterId);
                         if (dungeon.players.size === 0) {
                             activeDungeons.delete(sessionId);
                         }
-                        
+
                         socket.emit('playerDied', {
                             characterId,
                             message: 'You have been defeated!',
@@ -419,15 +420,25 @@ module.exports = (io, socket) => {
                             maxHealth: healedChar.rows[0].max_health
                         });
                     }
-                }                
+                }
             }
         } catch (error) {
             console.error('Attack error:', error);
         }
     });
-    
+
     socket.on('leaveDungeon', async ({ sessionId, characterId }) => {
         try {
+            const userId = socket.request.session?.userId;
+            if (!userId) {
+                return socket.emit('error', { message: 'Not authenticated' });
+            }
+
+            const verification = await verifyCharacterOwnership(characterId, userId);
+            if (!verification.valid) {
+                return socket.emit('error', { message: verification.error });
+            }
+
             const dungeon = activeDungeons.get(sessionId);
             if (dungeon) {
                 dungeon.players.delete(characterId);
@@ -435,19 +446,19 @@ module.exports = (io, socket) => {
                     activeDungeons.delete(sessionId);
                 }
             }
-            
+
             await pool.query(`
                 UPDATE characters 
                 SET health = max_health
                 WHERE id = $1
             `, [characterId]);
-            
+
             await pool.query(`
                 UPDATE dungeon_sessions 
                 SET ended_at = NOW(), is_active = FALSE
                 WHERE id = $1
             `, [sessionId]);
-            
+
             socket.leave(`dungeon_${sessionId}`);
         } catch (error) {
             console.error('Leave dungeon error:', error);

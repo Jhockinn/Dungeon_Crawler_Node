@@ -10,7 +10,6 @@
   let error = '';
 
   onMount(() => {
-    // Get token from URL
     const params = new URLSearchParams(window.location.search);
     token = params.get('token') || '';
 
@@ -38,8 +37,7 @@
     try {
       await resetPassword(token, newPassword);
       success = true;
-      
-      // Redirect to login after 3 seconds
+
       setTimeout(() => {
         window.location.href = '/';
       }, 3000);
