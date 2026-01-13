@@ -5,7 +5,7 @@ const { buildClientUrl } = require('./urlHelper');
 
 let transporter = null;
 
-// Creates email transporter (Gmail if configured, else Ethereal test account)
+// Creates email transporter 
 const createTransporter = async () => {
     if (transporter) return transporter;
 
